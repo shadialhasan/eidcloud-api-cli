@@ -1,0 +1,12 @@
+{
+  "description": "Universal OpenAPI specification to interactive CLI generator with pagination, auth, and table outputs in pure PHP",
+  "topics": [
+    "eidcloud",
+    "openapi-cli",
+    "api-client",
+    "cli-generator",
+    "swagger",
+    "developer-tools",
+    "php8"
+  ]
+}

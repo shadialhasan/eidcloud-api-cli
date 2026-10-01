@@ -1,0 +1,144 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "EidCloud Sample API",
+    "version": "1.0.0",
+    "description": "Demonstration OpenAPI 3.0 specification for testing CLI generator"
+  },
+  "servers": [
+    {
+      "url": "https://jsonplaceholder.typicode.com",
+      "description": "Production JSON Mock Server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    }
+  },
+  "paths": {
+    "/users": {
+      "get": {
+        "tags": ["users"],
+        "summary": "List all users",
+        "operationId": "listUsers",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A list of users"
+          }
+        }
+      },
+      "post": {
+        "tags": ["users"],
+        "summary": "Create a new user",
+        "operationId": "createUser",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "User created"
+          }
+        }
+      }
+    },
+    "/users/{id}": {
+      "get": {
+        "tags": ["users"],
+        "summary": "Get user by ID",
+        "operationId": "getUserById",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User details"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["users"],
+        "summary": "Delete user by ID",
+        "operationId": "deleteUserById",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "User deleted"
+          }
+        }
+      }
+    },
+    "/posts": {
+      "get": {
+        "tags": ["posts"],
+        "summary": "List blog posts",
+        "operationId": "listPosts",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of posts"
+          }
+        }
+      }
+    }
+  }
+}

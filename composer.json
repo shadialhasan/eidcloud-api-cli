@@ -1,0 +1,28 @@
+{
+  "name": "eidcloud/api-cli",
+  "description": "Universal OpenAPI specification to interactive CLI generator with pagination, auth, and table outputs in pure PHP",
+  "type": "library",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "MHD. Shadi AL-Hasan",
+      "email": "shadi@eidcloud.com",
+      "role": "Lead Architect & Maintainer"
+    }
+  ],
+  "require": {
+    "php": ">=8.2.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "EidCloud\\ApiCli\\": "src/"
+    }
+  },
+  "bin": [
+    "bin/eidcloud-api-cli"
+  ],
+  "scripts": {
+    "test": "php tests/run_tests.php"
+  },
+  "minimum-stability": "stable"
+}

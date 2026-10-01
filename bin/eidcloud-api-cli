@@ -1,0 +1,257 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * eidcloud-api-cli - Universal OpenAPI to Interactive CLI Generator
+ * Author: Eng. MHD. Shadi AL-Hasan
+ * License: MIT
+ */
+
+require_once __DIR__ . '/../src/Autoloader.php';
+\EidCloud\ApiCli\Autoloader::register();
+
+use EidCloud\ApiCli\Parser\SpecParser;
+use EidCloud\ApiCli\CliGenerator;
+use EidCloud\ApiCli\Client\HttpClient;
+use EidCloud\ApiCli\Auth\AuthManager;
+use EidCloud\ApiCli\Formatter\TableFormatter;
+use EidCloud\ApiCli\Command\CompletionGenerator;
+use EidCloud\ApiCli\Command\PaginationHandler;
+
+$formatter = new TableFormatter();
+$authManager = new AuthManager();
+
+$argv = $_SERVER['argv'];
+array_shift($argv); // Remove binary name
+
+function showBanner(TableFormatter $f): void
+{
+    echo $f->color("  ⚡ eidcloud-api-cli v1.0.0\n", 'cyan');
+    echo $f->color("  Universal OpenAPI to Interactive CLI Generator (Pure PHP 8.2+)\n", 'dim');
+    echo $f->color("  Lead Architect: Eng. MHD. Shadi AL-Hasan\n\n", 'dim');
+}
+
+function showHelp(TableFormatter $f): void
+{
+    showBanner($f);
+    echo $f->color("USAGE:\n", 'yellow');
+    echo "  eidcloud-api-cli <command> [arguments] [options]\n\n";
+
+    echo $f->color("COMMANDS:\n", 'yellow');
+    echo "  " . $f->color(str_pad("generate <spec>", 24), 'green') . " Generate a standalone interactive CLI from OpenAPI spec\n";
+    echo "  " . $f->color(str_pad("call <spec> <path> [M]", 24), 'green') . " Directly execute an API endpoint from OpenAPI spec\n";
+    echo "  " . $f->color(str_pad("auth <action>", 24), 'green') . " Manage authentication profiles (set, get, list, remove)\n";
+    echo "  " . $f->color(str_pad("completion <shell>", 24), 'green') . " Generate shell auto-completion script (bash, zsh)\n";
+    echo "  " . $f->color(str_pad("version", 24), 'green') . " Show current tool version\n";
+    echo "  " . $f->color(str_pad("help", 24), 'green') . " Display this help menu\n\n";
+
+    echo $f->color("EXAMPLES:\n", 'yellow');
+    echo "  php bin/eidcloud-api-cli generate openapi.json --name=myapi --out=./bin/\n";
+    echo "  php bin/eidcloud-api-cli call openapi.json /users GET --table\n";
+    echo "  php bin/eidcloud-api-cli call openapi.json /users/1 GET --json\n";
+    echo "  php bin/eidcloud-api-cli auth set prod --type=bearer --token=xyz123\n";
+    echo "  php bin/eidcloud-api-cli completion bash\n\n";
+
+    echo $f->color("GLOBAL OPTIONS:\n", 'yellow');
+    echo "  --table                 Display response formatted as an ANSI table\n";
+    echo "  --json                  Display response as raw JSON\n";
+    echo "  --csv                   Export response as CSV\n";
+    echo "  --page=N                Specify pagination page\n";
+    echo "  --limit=N               Specify pagination limit\n";
+    echo "  --auto-paginate         Fetch all pages automatically\n";
+    echo "  --profile=NAME          Use configured auth profile\n";
+    echo "  --header=Key:Value      Pass custom HTTP header\n";
+    echo "  --body='{...}'          Pass JSON request payload\n";
+    echo "  -h, --help              Show help information\n";
+}
+
+if (empty($argv) || in_array($argv[0], ['-h', '--help', 'help'])) {
+    showHelp($formatter);
+    exit(0);
+}
+
+$command = strtolower($argv[0]);
+
+switch ($command) {
+    case 'version':
+    case '--version':
+    case '-v':
+        echo "eidcloud-api-cli version 1.0.0 (PHP " . PHP_VERSION . ")\n";
+        exit(0);
+
+    case 'generate':
+        if (!isset($argv[1])) {
+            echo $formatter->color("Error: Missing OpenAPI specification file or URL.\n", 'red');
+            echo "Usage: eidcloud-api-cli generate <spec.json|url> [--name=api] [--out=./bin]\n";
+            exit(1);
+        }
+
+        $specPath = $argv[1];
+        $cliName = 'api';
+        $outDir = './bin';
+
+        foreach ($argv as $arg) {
+            if (str_starts_with($arg, '--name=')) {
+                $cliName = substr($arg, 7);
+            } elseif (str_starts_with($arg, '--out=')) {
+                $outDir = substr($arg, 6);
+            }
+        }
+
+        try {
+            echo $formatter->color("Parsing OpenAPI specification: {$specPath}...\n", 'cyan');
+            $parser = new SpecParser($specPath);
+            $generator = new CliGenerator($parser);
+
+            $target = $generator->generate($cliName, $outDir);
+            echo $formatter->color("✔ CLI generated successfully at: {$target}\n", 'green');
+            echo "Test your new CLI by running: php {$target} --help\n";
+        } catch (\Throwable $e) {
+            echo $formatter->color("Generation failed: " . $e->getMessage() . "\n", 'red');
+            exit(1);
+        }
+        break;
+
+    case 'call':
+        if (!isset($argv[1]) || !isset($argv[2])) {
+            echo $formatter->color("Error: Missing specification or endpoint path.\n", 'red');
+            echo "Usage: eidcloud-api-cli call <spec> <path> [METHOD] [--table|--json|--csv] [params...]\n";
+            exit(1);
+        }
+
+        $specPath = $argv[1];
+        $path = $argv[2];
+        $method = isset($argv[3]) && !str_starts_with($argv[3], '-') ? strtoupper($argv[3]) : 'GET';
+
+        $isTable = false;
+        $isJson = false;
+        $isCsv = false;
+        $autoPaginate = false;
+        $profile = 'default';
+        $customHeaders = [];
+        $params = [];
+        $body = null;
+
+        foreach ($argv as $arg) {
+            if ($arg === '--table') $isTable = true;
+            elseif ($arg === '--json') $isJson = true;
+            elseif ($arg === '--csv') $isCsv = true;
+            elseif ($arg === '--auto-paginate') $autoPaginate = true;
+            elseif (str_starts_with($arg, '--profile=')) $profile = substr($arg, 10);
+            elseif (str_starts_with($arg, '--body=')) $body = substr($arg, 7);
+            elseif (str_starts_with($arg, '--header=')) {
+                [$hk, $hv] = explode(':', substr($arg, 9), 2);
+                $customHeaders[trim($hk)] = trim($hv);
+            } elseif (str_starts_with($arg, '--') && str_contains($arg, '=')) {
+                [$k, $v] = explode('=', substr($arg, 2), 2);
+                $params[$k] = $v;
+            }
+        }
+
+        try {
+            $parser = new SpecParser($specPath);
+            $baseUrl = $parser->getBaseUrl();
+            $client = new HttpClient($baseUrl);
+
+            $auth = $authManager->getProfile($profile);
+            if ($auth) {
+                $authManager->applyAuth($auth, $customHeaders, $params);
+            }
+
+            // Replace path parameters (e.g. /users/{id})
+            foreach ($params as $k => $v) {
+                if (str_contains($path, '{' . $k . '}')) {
+                    $path = str_replace('{' . $k . '}', (string)$v, $path);
+                    unset($params[$k]);
+                }
+            }
+
+            if ($autoPaginate && $method === 'GET') {
+                $paginator = new PaginationHandler($client);
+                $limit = (int)($params['limit'] ?? 50);
+                $items = $paginator->paginateAll($method, $path, $params, $body, $customHeaders, 10, $limit);
+                $res = ['status' => 200, 'json' => $items, 'body' => json_encode($items)];
+            } else {
+                $res = $client->request($method, $path, $params, $body, $customHeaders);
+            }
+
+            if ($isCsv) {
+                $items = (new PaginationHandler($client))->extractItemsFromResponse($res['json'] ?? []);
+                echo $formatter->renderCsv($items);
+            } elseif ($isTable && !empty($res['json'])) {
+                $items = (new PaginationHandler($client))->extractItemsFromResponse($res['json']);
+                echo $formatter->renderTable($items);
+            } else {
+                echo $formatter->renderJson($res['json'] ?? $res['body']);
+            }
+        } catch (\Throwable $e) {
+            echo $formatter->color("Request failed: " . $e->getMessage() . "\n", 'red');
+            exit(1);
+        }
+        break;
+
+    case 'auth':
+        $sub = $argv[1] ?? 'list';
+        if ($sub === 'set') {
+            $profile = $argv[2] ?? 'default';
+            $data = [];
+            foreach ($argv as $a) {
+                if (str_starts_with($a, '--type=')) $data['type'] = substr($a, 7);
+                elseif (str_starts_with($a, '--token=')) $data['token'] = substr($a, 8);
+                elseif (str_starts_with($a, '--name=')) $data['name'] = substr($a, 7);
+                elseif (str_starts_with($a, '--value=')) $data['value'] = substr($a, 8);
+                elseif (str_starts_with($a, '--in=')) $data['in'] = substr($a, 5);
+                elseif (str_starts_with($a, '--username=')) $data['username'] = substr($a, 11);
+                elseif (str_starts_with($a, '--password=')) $data['password'] = substr($a, 11);
+            }
+            $authManager->setProfile($profile, $data);
+            echo $formatter->color("✔ Auth profile '{$profile}' saved securely.\n", 'green');
+        } elseif ($sub === 'get') {
+            $profile = $argv[2] ?? 'default';
+            $data = $authManager->getProfile($profile);
+            if ($data) {
+                // Mask sensitive info
+                if (isset($data['token'])) $data['token'] = substr($data['token'], 0, 4) . '****';
+                if (isset($data['password'])) $data['password'] = '****';
+                if (isset($data['value'])) $data['value'] = substr($data['value'], 0, 4) . '****';
+                echo $formatter->renderJson($data);
+            } else {
+                echo $formatter->color("Profile '{$profile}' not found.\n", 'yellow');
+            }
+        } elseif ($sub === 'remove') {
+            $profile = $argv[2] ?? 'default';
+            if ($authManager->removeProfile($profile)) {
+                echo $formatter->color("✔ Auth profile '{$profile}' deleted.\n", 'green');
+            } else {
+                echo $formatter->color("Profile '{$profile}' not found.\n", 'yellow');
+            }
+        } else {
+            // list
+            $list = $authManager->listProfiles();
+            if (empty($list)) {
+                echo "No auth profiles found. Create one with: eidcloud-api-cli auth set <name> --type=bearer --token=...\n";
+            } else {
+                echo $formatter->color("Configured Auth Profiles:\n", 'yellow');
+                foreach ($list as $p) {
+                    echo "  - {$p}\n";
+                }
+            }
+        }
+        break;
+
+    case 'completion':
+        $shell = strtolower($argv[1] ?? 'bash');
+        if ($shell === 'zsh') {
+            echo CompletionGenerator::generateZsh('eidcloud-api-cli', []);
+        } else {
+            echo CompletionGenerator::generateBash('eidcloud-api-cli', []);
+        }
+        break;
+
+    default:
+        echo $formatter->color("Unknown command: {$command}\n", 'red');
+        showHelp($formatter);
+        exit(1);
+}
